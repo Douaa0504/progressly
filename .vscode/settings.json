@@ -1,0 +1,5 @@
+{
+    "gradle.autoDetect": "off",
+    "java.gradle.buildServer.enabled": "off",
+    "cmake.sourceDirectory": "C:/Users/vtido/AndroidStudioProjects/progressly/windows/runner"
+}
