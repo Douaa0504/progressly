@@ -1,5 +1,7 @@
 
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:progressly/models/task.dart';
 
 class MyHome extends StatefulWidget {
   const MyHome({super.key});
@@ -11,11 +13,58 @@ class MyHome extends StatefulWidget {
 class _MyHomeState extends State<MyHome> {
   final Color primaryColor = const Color.fromARGB(255, 8, 195, 195);
 
+  final Box tasksBox = Hive.box('tasksBox');
+
   String selectedFilter = 'All';
 
-  final List<Map<String, dynamic>> tasks = [];
+  List<Task> tasks = [];
 
-  // Get today's date
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    loadTasks();
+  }
+
+  // Load saved tasks from Hive.
+  Future<void> loadTasks() async {
+    final savedTasks = tasksBox.values.toList();
+
+    final loadedTasks = savedTasks.map((item) {
+      final data = Map<String, dynamic>.from(item as Map);
+
+      return Task(
+        id: data['id'] as String,
+        title: data['title'] as String,
+        subtitle: data['subtitle'] as String,
+        isCompleted: data['isCompleted'] as bool,
+      );
+    }).toList();
+
+    if (!mounted) return;
+
+    setState(() {
+      tasks = loadedTasks;
+      isLoading = false;
+    });
+  }
+
+  // Save all tasks in Hive.
+  Future<void> saveTasks() async {
+    await tasksBox.clear();
+
+    for (final task in tasks) {
+      await tasksBox.put(task.id, {
+        'id': task.id,
+        'title': task.title,
+        'subtitle': task.subtitle,
+        'isCompleted': task.isCompleted,
+      });
+    }
+  }
+
+  // Get today's date.
   String getTodayDate() {
     final now = DateTime.now();
 
@@ -48,101 +97,149 @@ class _MyHomeState extends State<MyHome> {
         '${months[now.month - 1]} ${now.day}';
   }
 
+  // Calculate the number of completed tasks.
   int get completedTasks =>
-      tasks.where((task) => task['completed'] == true).length;
+      tasks.where((task) => task.isCompleted).length;
 
-  List<Map<String, dynamic>> get filteredTasks {
+  // Filter tasks according to the selected filter.
+  List<Task> get filteredTasks {
     if (selectedFilter == 'Active') {
-      return tasks.where((task) => task['completed'] == false).toList();
+      return tasks.where((task) => !task.isCompleted).toList();
     }
 
     if (selectedFilter == 'Completed') {
-      return tasks.where((task) => task['completed'] == true).toList();
+      return tasks.where((task) => task.isCompleted).toList();
     }
 
     return tasks;
   }
 
-  void toggleTask(int index) {
+  // Change a task's completion status and save it.
+  Future<void> toggleTask(Task task, bool value) async {
     setState(() {
-      filteredTasks[index]['completed'] =
-          !filteredTasks[index]['completed'];
+      task.isCompleted = value;
     });
+
+    await saveTasks();
   }
 
-  void addTask() {
-    final controller = TextEditingController();
+  // Delete a task and save the changes.
+  Future<void> deleteTask(Task task) async {
+    setState(() {
+      tasks.removeWhere((item) => item.id == task.id);
+    });
 
-    showModalBottomSheet(
+    await saveTasks();
+  }
+
+  // Add a new task and save it.
+  Future<void> addTask(String title) async {
+    final newTask = Task(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: title,
+      subtitle: 'New task',
+    );
+
+    setState(() {
+      tasks.add(newTask);
+    });
+
+    await saveTasks();
+  }
+
+  // Display the form used to create a task.
+  
+Future<void> showAddTaskDialog() async {
+  final controller = TextEditingController();
+
+  try {
+    final title = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(24),
         ),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return Padding(
           padding: EdgeInsets.fromLTRB(
             24,
             24,
             24,
-            MediaQuery.of(context).viewInsets.bottom + 24,
+            MediaQuery.of(sheetContext).viewInsets.bottom + 24,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'New Task',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Enter task title...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'New Task',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final title = controller.text.trim();
-
-                    if (title.isEmpty) return;
-
-                    setState(() {
-                      tasks.add({
-                        'title': title,
-                        'subtitle': 'New task',
-                        'completed': false,
-                      });
-                    });
-
-                    Navigator.pop(context);
+                const SizedBox(height: 20),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    hintText: 'Enter task title...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onSubmitted: (value) {
+                    if (value.trim().isNotEmpty) {
+                      Navigator.pop(sheetContext, value.trim());
+                    }
                   },
-                  child: const Text('Add Task'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final value = controller.text.trim();
+
+                      if (value.isNotEmpty) {
+                        Navigator.pop(sheetContext, value);
+                      }
+                    },
+                    child: const Text('Add Task'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+
+    if (!mounted || title == null || title.isEmpty) return;
+
+    await addTask(title);
+  } finally {
+    controller.dispose();
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     final progress = tasks.isEmpty
         ? 0.0
         : completedTasks / tasks.length;
@@ -159,7 +256,7 @@ class _MyHomeState extends State<MyHome> {
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
-        ), 
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20),
@@ -178,14 +275,14 @@ class _MyHomeState extends State<MyHome> {
           padding: const EdgeInsets.all(20),
           children: [
             Text(
-                  getTodayDate(),
-                  style: TextStyle(
-                    fontSize: 18,
-                    letterSpacing: 1.1,
-                    color: Color.fromARGB(255, 8, 8, 8),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              getTodayDate(),
+              style: const TextStyle(
+                fontSize: 18,
+                letterSpacing: 1.1,
+                color: Color.fromARGB(255, 8, 8, 8),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 10),
             const Text(
               'Stay focused and get things done.',
@@ -194,10 +291,9 @@ class _MyHomeState extends State<MyHome> {
                 color: Color(0xFF85899B),
               ),
             ),
-
             const SizedBox(height: 15),
 
-            // Progress card
+            // Progress card.
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -234,9 +330,8 @@ class _MyHomeState extends State<MyHome> {
                       value: progress,
                       minHeight: 8,
                       backgroundColor: Colors.white,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        primaryColor,
-                      ),
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -254,7 +349,7 @@ class _MyHomeState extends State<MyHome> {
 
             const SizedBox(height: 28),
 
-            // Filter buttons
+            // Filter buttons.
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -267,7 +362,8 @@ class _MyHomeState extends State<MyHome> {
                       label: Text(filter),
                       selected: isSelected,
                       showCheckmark: false,
-                      selectedColor: const Color.fromARGB(255, 222, 251, 254),
+                      selectedColor:
+                          const Color.fromARGB(255, 222, 251, 254),
                       backgroundColor: Colors.white,
                       side: BorderSide(
                         color: isSelected
@@ -293,9 +389,9 @@ class _MyHomeState extends State<MyHome> {
 
             const SizedBox(height: 20),
 
-            // Task list
+            // Task list.
             ...filteredTasks.map((task) {
-              final isCompleted = task['completed'] as bool;
+              final isCompleted = task.isCompleted;
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
@@ -316,8 +412,10 @@ class _MyHomeState extends State<MyHome> {
                       value: isCompleted,
                       activeColor: primaryColor,
                       shape: const CircleBorder(),
-                      onChanged: (_) {
-                        toggleTask(filteredTasks.indexOf(task));
+                      onChanged: (value) {
+                        if (value != null) {
+                          toggleTask(task, value);
+                        }
                       },
                     ),
                     const SizedBox(width: 6),
@@ -326,7 +424,7 @@ class _MyHomeState extends State<MyHome> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            task['title'] as String,
+                            task.title,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -340,7 +438,7 @@ class _MyHomeState extends State<MyHome> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            task['subtitle'] as String,
+                            task.subtitle,
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF85899B),
@@ -355,9 +453,7 @@ class _MyHomeState extends State<MyHome> {
                         color: Color(0xFF9699A9),
                       ),
                       onPressed: () {
-                        setState(() {
-                          tasks.remove(task);
-                        });
+                        deleteTask(task);
                       },
                     ),
                   ],
@@ -391,7 +487,7 @@ class _MyHomeState extends State<MyHome> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: addTask,
+        onPressed: showAddTaskDialog,
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         elevation: 3,

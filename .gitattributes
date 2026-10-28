@@ -1,0 +1,6 @@
+# Exclude generated Flutter platform files from language statistics
+
+linux/flutter/** linguist-generated=true
+windows/flutter/** linguist-generated=true
+macos/Flutter/GeneratedPluginRegistrant.swift linguist-generated=true
+ios/Flutter/Generated.xcassets/** linguist-generated=true
